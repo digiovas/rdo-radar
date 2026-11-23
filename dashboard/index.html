@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RDO Radar</title>
+<style>
+  :root{--bg:#f6f7f9;--card:#fff;--ink:#1d2330;--mute:#667085;--line:#e3e6ec;--acc:#0b6b4f;--acc2:#e8f4ef;--warn:#b54708;--warnbg:#fff4e5;--bad:#b42318;--hit:#fff2a8}
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+  header{padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
+  header h1{font-size:18px;margin:0}
+  header .meta{color:var(--mute);font-size:13px}
+  main{display:grid;grid-template-columns:330px 1fr;gap:20px;padding:20px;max-width:1300px;margin:0 auto}
+  @media(max-width:900px){main{grid-template-columns:1fr}}
+  aside,.card{background:var(--card);border:1px solid var(--line);border-radius:10px}
+  aside{padding:14px;align-self:start;position:sticky;top:12px}
+  @media(max-width:900px){aside{position:static}}
+  label{display:block;font-size:12px;font-weight:600;color:var(--mute);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.03em}
+  textarea,input[type=text],input[type=number],select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;font:inherit;background:#fff}
+  textarea{min-height:92px;resize:vertical}
+  .row{display:flex;gap:8px}.row>*{flex:1}
+  .chk{display:flex;gap:12px;flex-wrap:wrap;font-size:14px}.chk label{margin:0;text-transform:none;font-weight:400;color:var(--ink);letter-spacing:0;display:flex;gap:5px;align-items:center}
+  button{font:inherit;padding:6px 11px;border-radius:7px;border:1px solid var(--line);background:#fff;cursor:pointer}
+  button.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+  button.danger{color:var(--bad)}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .neg{border-color:#f1c0bb}
+  .res-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;color:var(--mute);font-size:14px}
+  .item{padding:14px 16px;margin-bottom:10px}
+  .item h3{margin:0 0 4px;font-size:16px}.item h3 a{color:#1a56c4;text-decoration:none}.btn-rdo{display:inline-block;margin-top:8px;padding:4px 10px;border:1px solid #1a56c4;border-radius:6px;color:#1a56c4;text-decoration:none;font-size:13px}.btn-rdo:hover{background:#1a56c4;color:#fff}.item h3 a:hover{text-decoration:underline}
+  .sub{color:var(--mute);font-size:13px;display:flex;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .tag{font-size:12px;padding:1px 8px;border-radius:999px;background:var(--acc2);color:var(--acc);font-weight:600}
+  .tag.new{background:#fff3c4;color:#7a5b00}.tag.soon{background:var(--warnbg);color:var(--warn)}.tag.exp{background:#eee;color:#666}
+  .scopo{margin:6px 0;padding:8px 10px;background:#fafbfc;border-left:3px solid var(--acc);border-radius:4px}
+  .snip{font-size:13px;color:#444;margin-top:6px}
+  mark{background:var(--hit);padding:0 1px;border-radius:2px}
+  .docs{font-size:12px;color:var(--mute);margin-top:6px}
+  .why{font-size:12px;color:var(--bad)}
+  .empty{padding:30px;text-align:center;color:var(--mute)}
+  .note{font-size:12px;color:var(--mute);margin-top:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>RDO Radar</h1>
+  <span class="meta" id="meta">Caricamento dati…</span>
+</header>
+<main>
+<aside>
+  <label for="saved">Ricerca salvata</label>
+  <div class="row"><select id="saved"></select></div>
+  <div class="bar">
+    <button id="btnNew">Nuova</button>
+    <button id="btnDel" class="danger">Elimina</button>
+  </div>
+
+  <label for="name">Nome ricerca</label>
+  <input type="text" id="name">
+
+  <label for="pos">Parole chiave (una per riga)</label>
+  <textarea id="pos" placeholder="recinzione&#10;acciaio inox&#10;carpenteria"></textarea>
+  <div class="chk" style="margin-top:6px">
+    <label><input type="radio" name="mode" value="or" checked> almeno una</label>
+    <label><input type="radio" name="mode" value="and"> tutte</label>
+  </div>
+
+  <label for="negs">Parole chiave negative (una per riga)</label>
+  <textarea id="negs" class="neg" placeholder="farmaco&#10;dispositivo medico&#10;ospedale"></textarea>
+  <div class="chk" style="margin-top:6px">
+    <label title="Di default i negativi guardano titolo, descrizione e scopo. Nei documenti compaiono spesso per caso."><input type="checkbox" id="negDocs"> negativi anche nei documenti</label>
+  </div>
+
+  <label>Cerca in</label>
+  <div class="chk">
+    <label><input type="checkbox" id="fTitolo" checked> titolo</label>
+    <label><input type="checkbox" id="fScopo" checked> scopo/descrizione</label>
+    <label><input type="checkbox" id="fDocs" checked> documenti</label>
+  </div>
+
+  <label>Tipo</label>
+  <div class="chk">
+    <label><input type="checkbox" class="tipo" value="Beni" checked> Beni</label>
+    <label><input type="checkbox" class="tipo" value="Lavori" checked> Lavori</label>
+    <label><input type="checkbox" class="tipo" value="Servizi"> Servizi</label>
+  </div>
+
+  <label>Importo (€)</label>
+  <div class="row"><input type="number" id="vMin" placeholder="min" min="0"><input type="number" id="vMax" placeholder="max" min="0"></div>
+
+  <div class="chk" style="margin-top:12px">
+    <label><input type="checkbox" id="soloAperte" checked> solo non scadute</label>
+    <label><input type="checkbox" id="soloNuove"> solo nuove (3 giorni)</label>
+  </div>
+
+  <div class="bar">
+    <button class="primary" id="btnSave">Salva ricerca</button>
+    <button id="btnExport">Esporta</button>
+    <button id="btnImport">Importa</button>
+  </div>
+  <p class="note">Le ricerche restano nel tuo browser e non vengono inviate a nessuno. Con "Esporta" ne ottieni una copia da conservare.</p>
+</aside>
+
+<section>
+  <div class="res-head">
+    <span id="count"></span>
+    <label style="margin:0;text-transform:none;font-weight:400;display:flex;gap:6px;align-items:center"><input type="checkbox" id="showHidden"> mostra anche le RDO escluse dai negativi</label>
+  </div>
+  <div id="results"></div>
+</section>
+</main>
+
+<script>
+"use strict";
+const LS_KEY = "rdoRadar.v1";
+const DEFAULT_SEARCH = {
+  name: "Carpenteria metallica",
+  // Si cerca per "radice": "armad" trova armadio, armadi, armadietti. Attenzione a radici troppo corte
+  // ("cancell" troverebbe anche "cancelleria"): meglio "cancello" e "cancelli" separati.
+  pos: ["recinzion","cancello","cancelli","carpenteri","metallic","armad","scaffalatur","panchin","lamier","acciaio","inox","zincat","saldatur","ringhier","pensilin"].join("\n"),
+  negs: ["farmaco","dispositivo medico","reagent","software","licenz","carta per fotocopie"].join("\n"),
+  mode: "or", negDocs: false, fTitolo: true, fScopo: true, fDocs: true,
+  tipi: ["Beni","Lavori"], vMin: "", vMax: "", soloAperte: true, soloNuove: false
+};
+let DATA = {rdo: [], generato: 0};
+let state = {searches: [], current: 0};
+
+// ---------- utilita' ----------
+const $ = id => document.getElementById(id);
+const norm = s => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const terms = txt => (txt || "").split(/\r?\n/).map(t => norm(t).trim()).filter(Boolean);
+const fmtDate = ts => ts ? new Date(ts * 1000).toLocaleDateString("it-IT") : "—";
+const fmtEur = v => v == null ? "—" : v.toLocaleString("it-IT", {style: "currency", currency: "EUR", maximumFractionDigits: 0});
+
+function load() {
+  try { const s = JSON.parse(localStorage.getItem(LS_KEY)); if (s && s.searches?.length) state = s; } catch (e) {}
+  if (!state.searches.length) state = {searches: [structuredClone(DEFAULT_SEARCH)], current: 0};
+}
+function persist() { try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) {} }
+
+// ---------- form <-> ricerca ----------
+function readForm() {
+  return {
+    name: $("name").value.trim() || "Senza nome",
+    pos: $("pos").value, negs: $("negs").value,
+    mode: document.querySelector("input[name=mode]:checked").value,
+    negDocs: $("negDocs").checked,
+    fTitolo: $("fTitolo").checked, fScopo: $("fScopo").checked, fDocs: $("fDocs").checked,
+    tipi: [...document.querySelectorAll(".tipo:checked")].map(e => e.value),
+    vMin: $("vMin").value, vMax: $("vMax").value,
+    soloAperte: $("soloAperte").checked, soloNuove: $("soloNuove").checked
+  };
+}
+function writeForm(s) {
+  $("name").value = s.name; $("pos").value = s.pos; $("negs").value = s.negs;
+  document.querySelector(`input[name=mode][value=${s.mode}]`).checked = true;
+  $("negDocs").checked = s.negDocs;
+  $("fTitolo").checked = s.fTitolo; $("fScopo").checked = s.fScopo; $("fDocs").checked = s.fDocs;
+  document.querySelectorAll(".tipo").forEach(e => e.checked = s.tipi.includes(e.value));
+  $("vMin").value = s.vMin; $("vMax").value = s.vMax;
+  $("soloAperte").checked = s.soloAperte; $("soloNuove").checked = s.soloNuove;
+}
+function renderSaved() {
+  $("saved").innerHTML = state.searches.map((s, i) => `<option value="${i}">${esc(s.name)}</option>`).join("");
+  $("saved").value = state.current;
+}
+
+// ---------- ricerca ----------
+function findRanges(raw, ts) {
+  // posizioni delle parole chiave nel testo originale (la normalizzazione non cambia le lunghezze nei casi comuni)
+  const n = norm(raw), out = [];
+  for (const t of ts) { let i = 0; while ((i = n.indexOf(t, i)) !== -1) { out.push([i, i + t.length]); i += t.length; } }
+  out.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const r of out) { const l = merged[merged.length - 1]; if (l && r[0] <= l[1]) l[1] = Math.max(l[1], r[1]); else merged.push(r.slice()); }
+  return merged;
+}
+function highlight(raw, ts) {
+  if (!raw) return "";
+  const rs = findRanges(raw, ts); let o = "", p = 0;
+  for (const [a, b] of rs) { o += esc(raw.slice(p, a)) + "<mark>" + esc(raw.slice(a, b)) + "</mark>"; p = b; }
+  return o + esc(raw.slice(p));
+}
+function snippet(raw, ts, width = 110) {
+  const rs = findRanges(raw || "", ts); if (!rs.length) return "";
+  const [a, b] = rs[0], s = Math.max(0, a - width), e = Math.min(raw.length, b + width);
+  return (s > 0 ? "…" : "") + highlight(raw.slice(s, e), ts) + (e < raw.length ? "…" : "");
+}
+
+function evaluate(r, s, now) {
+  const pos = terms(s.pos), neg = terms(s.negs);
+  const fields = [];
+  if (s.fTitolo) fields.push(["titolo", r.titolo, 3]);
+  if (s.fScopo) { fields.push(["scopo", r.scopo, 2]); fields.push(["descrizione", r.descrizione, 2]); }
+  if (s.fDocs) fields.push(["documenti", r.estratto, 1]);
+  const texts = fields.map(f => ({k: f[0], n: norm(f[1]), w: f[2]}));
+
+  // filtri di base
+  if (s.tipi.length && !s.tipi.includes(r.tipo)) return null;
+  if (s.vMin !== "" && (r.valore == null || r.valore < +s.vMin)) return null;
+  if (s.vMax !== "" && (r.valore == null || r.valore > +s.vMax)) return null;
+  if (s.soloAperte && r.scadenza && r.scadenza < now) return null;
+  if (s.soloNuove && (now - r.visto_il) > 3 * 86400) return null;
+
+  // parole chiave positive
+  const hit = new Map(); let score = 0;
+  for (const t of pos) {
+    let best = 0;
+    for (const f of texts) if (f.n.includes(t)) best = Math.max(best, f.w);
+    if (best) { hit.set(t, best); score += best; }
+  }
+  if (pos.length) {
+    if (s.mode === "and" ? hit.size < pos.length : hit.size === 0) return null;
+  }
+
+  // parole chiave negative
+  const negFields = [["titolo", r.titolo], ["scopo", r.scopo], ["descrizione", r.descrizione]];
+  if (s.negDocs) negFields.push(["documenti", r.estratto]);
+  const excluded = [];
+  for (const t of neg) for (const [k, v] of negFields) if (norm(v).includes(t)) { excluded.push(`«${t}» in ${k}`); break; }
+
+  return {r, score, hits: [...hit.keys()], excluded, pos};
+}
+
+function render() {
+  const s = readForm(), now = Math.floor(Date.now() / 1000), showHidden = $("showHidden").checked;
+  const evals = DATA.rdo.map(r => evaluate(r, s, now)).filter(Boolean);
+  const visible = evals.filter(e => !e.excluded.length);
+  const hidden = evals.filter(e => e.excluded.length);
+  const list = (showHidden ? evals : visible).sort((a, b) => b.score - a.score || (a.r.scadenza || 9e12) - (b.r.scadenza || 9e12));
+  $("count").textContent = `${visible.length} RDO in evidenza` + (hidden.length ? ` · ${hidden.length} escluse dai negativi` : "") + ` · ${DATA.rdo.length} totali`;
+  if (!list.length) { $("results").innerHTML = '<div class="card empty">Nessuna RDO corrisponde a questa ricerca.</div>'; return; }
+  $("results").innerHTML = list.slice(0, 200).map(e => {
+    const r = e.r, ts = e.hits;
+    const giorni = r.scadenza ? Math.ceil((r.scadenza - now) / 86400) : null;
+    const scad = giorni == null ? "" : giorni < 0 ? '<span class="tag exp">scaduta</span>'
+      : giorni <= 3 ? `<span class="tag soon">scade tra ${giorni} g</span>` : `<span class="tag">scade tra ${giorni} g</span>`;
+    const nuova = (now - r.visto_il) <= 3 * 86400 ? '<span class="tag new">nuova</span>' : "";
+    const sn = r.estratto && ts.length ? snippet(r.estratto, ts) : "";
+    const docs = (r.documenti || []).length
+      ? `${r.documenti.length} documenti (${(r.documenti.filter(d => d.stato === "ok").length)} letti)` + (r.docs_stato === "vuoto" ? " · testo non leggibile" : "")
+      : (r.tipo === "Servizi" ? "documenti non analizzati (servizi)" : "nessun documento letto");
+    return `<div class="card item">
+      <h3><a href="${esc(r.url)}" target="_blank" rel="noopener">${highlight(r.titolo, ts)}</a></h3>
+      <div class="sub"><span>${esc(r.ente || "")}</span><span><b>${fmtEur(r.valore)}</b></span><span>${esc(r.tipo || "")}</span>
+        <span>RDO ${esc(r.numero || "")}</span><span>pubb. ${fmtDate(r.pubblicata)} · scad. ${fmtDate(r.scadenza)}</span> ${nuova} ${scad}</div>
+      ${r.scopo ? `<div class="scopo"><b>Scopo:</b> ${highlight(r.scopo, ts)}</div>` : ""}
+      ${sn ? `<div class="snip">Nei documenti: ${sn}</div>` : ""}
+      ${ts.length ? `<div class="snip">Trovato: ${ts.map(esc).join(", ")}</div>` : ""}
+      ${e.excluded.length ? `<div class="why">Esclusa: ${e.excluded.map(esc).join(", ")}</div>` : ""}
+      <div class="docs">${esc(docs)}${r.cig ? " · CIG " + esc(r.cig) : ""}${r.criterio ? " · " + esc(r.criterio) : ""}</div>
+      <a class="btn-rdo" href="${esc(r.url)}" target="_blank" rel="noopener">Apri la RDO ${esc(r.numero || "")} su AcquistinretePA ↗</a>
+    </div>`;
+  }).join("");
+}
+
+// ---------- eventi ----------
+function bind() {
+  const rerender = () => render();
+  document.querySelectorAll("aside input, aside textarea").forEach(el => el.addEventListener("input", rerender));
+  $("showHidden").addEventListener("input", rerender);
+  $("saved").addEventListener("change", () => { state.current = +$("saved").value; persist(); writeForm(state.searches[state.current]); render(); });
+  $("btnSave").addEventListener("click", () => { state.searches[state.current] = readForm(); persist(); renderSaved(); });
+  $("btnNew").addEventListener("click", () => {
+    state.searches.push({...structuredClone(DEFAULT_SEARCH), name: "Nuova ricerca", pos: "", negs: ""});
+    state.current = state.searches.length - 1; persist(); renderSaved(); writeForm(state.searches[state.current]); render();
+  });
+  $("btnDel").addEventListener("click", () => {
+    if (state.searches.length === 1) return alert("Deve restare almeno una ricerca.");
+    if (!confirm("Eliminare la ricerca selezionata?")) return;
+    state.searches.splice(state.current, 1); state.current = 0; persist(); renderSaved(); writeForm(state.searches[0]); render();
+  });
+  $("btnExport").addEventListener("click", () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(state.searches, null, 2)], {type: "application/json"}));
+    a.download = "rdo-radar-ricerche.json"; a.click();
+  });
+  $("btnImport").addEventListener("click", () => {
+    const i = document.createElement("input"); i.type = "file"; i.accept = ".json";
+    i.onchange = async () => {
+      try {
+        const arr = JSON.parse(await i.files[0].text());
+        if (!Array.isArray(arr)) throw 0;
+        state.searches.push(...arr.filter(x => x && typeof x.name === "string").map(x => ({...DEFAULT_SEARCH, ...x})));
+        persist(); renderSaved(); render();
+      } catch (e) { alert("File non valido."); }
+    };
+    i.click();
+  });
+}
+
+async function init() {
+  load(); renderSaved(); writeForm(state.searches[state.current]); bind();
+  try {
+    const res = await fetch("data/rdo.json", {cache: "no-store"});
+    if (!res.ok) throw new Error(res.status);
+    DATA = await res.json();
+    $("meta").textContent = `Aggiornato il ${new Date(DATA.generato * 1000).toLocaleString("it-IT")} · ${DATA.totale} RDO`;
+  } catch (e) {
+    $("meta").textContent = "Dati non disponibili (data/rdo.json mancante)";
+  }
+  render();
+}
+init();
+</script>
+</body>
+</html>
