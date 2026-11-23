@@ -15,7 +15,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -42,9 +42,10 @@ jobs:
           fi
 
       - name: Aggiorna le RDO
-        run: python -m rdo_radar.run --db data-branch/rdo.sqlite --out data-branch/rdo.json -v
+        run: python -m rdo_radar.run --db data-branch/rdo.sqlite --out data-branch/rdo.json --max-new 1000 --max-minutes 75 -v
 
       - name: Salva i dati
+        if: always()
         run: |
           cd data-branch
           git config user.name "rdo-radar[bot]"
