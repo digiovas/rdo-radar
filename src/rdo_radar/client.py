@@ -36,7 +36,7 @@ class NotFound(PortalError):
 
 
 class Portal:
-    def __init__(self, delay: float = 1.0, timeout: int = 60, session: requests.Session | None = None):
+    def __init__(self, delay: float = 1.0, timeout: int = 30, session: requests.Session | None = None):
         self.delay = delay
         self.timeout = timeout
         self.s = session or requests.Session()

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 
 from . import db, documents, extract
 from .client import Portal, parse_detail, parse_list_item
@@ -13,7 +14,7 @@ log = logging.getLogger("rdo_radar")
 
 # Si leggono i documenti solo per questi tipi: i Servizi sono fuori dal vostro settore.
 TIPI_CON_DOCUMENTI = {"Beni", "Lavori"}
-MAX_BYTES = 15 * 1024 * 1024
+MAX_BYTES = 8 * 1024 * 1024
 
 
 def process_detail(portal: Portal, con, id_bando: str, tipo: str | None) -> str:
@@ -68,13 +69,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--max-pages", type=int, default=40)
     ap.add_argument("--max-new", type=int, default=150, help="tetto di RDO nuove lette per esecuzione")
+    ap.add_argument("--max-minutes", type=float, default=0,
+                    help="tempo massimo di lettura dettagli; poi si salva e si riprende al prossimo avvio (0 = nessun limite)")
     ap.add_argument("--delay", type=float, default=1.0)
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
 
-    logging.getLogger("urllib3").setLevel(logging.WARNING)  # meno rumore con -v
+    for noisy in ("urllib3", "pypdf", "fontTools"):  # meno rumore: i PDF mal formati sono frequenti
+        logging.getLogger(noisy).setLevel(logging.ERROR if noisy != "urllib3" else logging.WARNING)
     con = db.connect(args.db)
     portal = Portal(delay=args.delay)
 
@@ -88,7 +92,12 @@ def main(argv: list[str] | None = None) -> int:
 
     todo = db.pending_ids(con)[: args.max_new]
     fatte = errori = 0
+    deadline = time.monotonic() + args.max_minutes * 60 if args.max_minutes else None
     for id_bando in todo:
+        if deadline and time.monotonic() > deadline:
+            log.info("tempo massimo raggiunto: si salva e si riprende al prossimo avvio (%d RDO ancora da leggere)",
+                     len(todo) - fatte - errori)
+            break
         tipo = con.execute("SELECT tipo FROM rdo WHERE id_bando=?", (id_bando,)).fetchone()["tipo"]
         try:
             process_detail(portal, con, id_bando, tipo)
@@ -103,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     n = export_json(con, args.out)
     log.info("esportate %d RDO in %s", n, args.out)
     # Se quasi tutto fallisce il portale e' cambiato o ci blocca: l'azione deve diventare rossa
-    if todo and errori == len(todo):
+    if todo and fatte == 0 and errori > 0:
         log.error("tutte le letture sono fallite")
         return 1
     return 0

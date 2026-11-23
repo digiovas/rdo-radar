@@ -54,7 +54,7 @@ def pending_ids(con: sqlite3.Connection) -> list[str]:
     now = int(time.time())
     rows = con.execute(
         "SELECT id_bando FROM rdo WHERE docs_stato IN ('da_fare','errore') "
-        "AND (data_scadenza IS NULL OR data_scadenza > ?) ORDER BY data_pubblicazione DESC",
+        "AND (data_scadenza IS NULL OR data_scadenza > ?) ORDER BY (docs_stato = 'errore'), data_pubblicazione DESC",
         (now,),
     )
     return [r[0] for r in rows]
