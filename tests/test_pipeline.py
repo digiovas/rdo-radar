@@ -172,3 +172,15 @@ def test_scopo_da_tabella_excel_e_titolo_spezzato():
     assert "Sedia ergonomica" in r and "Armadio metallico" in r and "POS." not in r
     doc = ["Art. 2 Oggetto della fornitura, quantitativi e requisiti di legge\nI prodotti oggetto della presente fornitura dovranno essere nuovi."]
     assert find_scopo("t", None, doc).startswith("I prodotti")
+
+
+def test_pending_mette_in_fondo_le_rdo_in_errore(tmp_path):
+    import time
+    from rdo_radar import db
+    con = db.connect(str(tmp_path / "x.sqlite"))
+    fut = int(time.time()) + 86400
+    for i, (st, pub) in enumerate([("errore", 300), ("da_fare", 100), ("da_fare", 200)]):
+        con.execute("INSERT INTO rdo (id_bando, titolo, docs_stato, data_pubblicazione, data_scadenza, first_seen, last_seen) "
+                    "VALUES (?,?,?,?,?,0,0)", (f"id{i}", "t", st, pub, fut))
+    con.commit()
+    assert db.pending_ids(con) == ["id2", "id1", "id0"]
