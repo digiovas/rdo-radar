@@ -1,0 +1,81 @@
+name: Aggiornamento giornaliero RDO
+
+on:
+  schedule:
+    - cron: "17 5 * * *"   # 05:17 UTC = 06:17/07:17 in Italia
+  workflow_dispatch:        # avvio manuale dal tab Actions
+
+permissions:
+  contents: write           # per salvare il database nel branch "data"
+
+concurrency:
+  group: rdo-radar
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installa
+        run: pip install -e .
+
+      - name: Recupera il branch dati (o lo crea)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads "$URL" data >/dev/null 2>&1; then
+            git clone --depth 1 --branch data "$URL" data-branch
+          else
+            mkdir data-branch
+            git -C data-branch init -q -b data
+            git -C data-branch remote add origin "$URL"
+          fi
+
+      - name: Aggiorna le RDO
+        run: python -m rdo_radar.run --db data-branch/rdo.sqlite --out data-branch/rdo.json -v
+
+      - name: Salva i dati
+        run: |
+          cd data-branch
+          git config user.name "rdo-radar[bot]"
+          git config user.email "rdo-radar@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nessuna novita'"
+          else
+            git commit -q -m "Dati del $(date -u +%F)"
+            git push origin data
+          fi
+
+      - name: Prepara il sito
+        run: |
+          mkdir -p site/data
+          cp -r dashboard/* site/
+          cp data-branch/rdo.json site/data/rdo.json
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: update
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
