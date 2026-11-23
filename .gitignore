@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+data-branch/
+site/
+.env
+# i dati reali vivono nel branch "data", non in main
+dashboard/data/rdo.json
+*.sqlite
