@@ -1,4 +1,4 @@
-rdo-radar versione 2026-11-24 (v4)
+rdo-radar versione 2026-11-24 bis (v7)
 Modifiche rispetto alle versioni precedenti:
 - client.py: timeout 30 s, nuovi tentativi (3) se la connessione cade, warm-up sessione, retry se risposta non JSON
 - run.py: opzione --max-minutes (salva e riprende), documenti max 8 MB, log PDF silenziati
@@ -7,3 +7,7 @@ Modifiche rispetto alle versioni precedenti:
 - dashboard/index.html: pulsante "Apri la RDO"
 - .github/workflows/daily.yml: timeout 120 min, --max-new 1000 --max-minutes 75, salvataggio sempre (if: always())
 Controllo rapido: in daily.yml deve comparire "--max-minutes 75".
+- dashboard: etichetta 'Parole chiave da escludere', pulsante 'Mostra altre' (prima solo 200 RDO), conteggio delle RDO non mostrate dai filtri
+- daily.yml: opzione 'solo sito' (Run workflow) e pubblicazione automatica quando cambia dashboard/
+- AVVISI DI INDAGINE: letti ogni giorno insieme alle RDO (client.py, run.py, db.py, export.py), nuovo filtro "Fonte" nella dashboard
+- RDO di tipo misto ("Lavori, Servizi") ora lette; il database vecchio si aggiorna da solo alla prima esecuzione

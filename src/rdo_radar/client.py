@@ -22,6 +22,8 @@ import requests
 BASE = "https://www.acquistinretepa.it"
 LIST_PAGE = f"{BASE}/opencms/opencms/vetrina_bandi.html?filter=RDO"
 SCHEDA_URL = BASE + "/opencms/opencms/scheda_altri_bandi.html?idBando={id}"
+ADI_LISTA = "/adi/api/v1/vetrina/ricerca"      # avvisi di indagine (osservato il 24/11/2026)
+ADI_DETTAGLIO = "/adi/api/v1/vetrina/dettaglio"
 UA = "rdo-radar/0.1 (progetto personale non commerciale; una esecuzione al giorno)"
 
 log = logging.getLogger(__name__)
@@ -129,6 +131,33 @@ class Portal:
             if not new:
                 return
 
+    # -- avvisi di indagine --------------------------------------------
+    def avvisi_page(self, page: int = 1, per_page: int = 100) -> list[dict]:
+        body = {
+            "nmAvviso": "", "isArchive": False, "dataPubblicazione": None, "dataFine": None,
+            "stazioneAppaltante": "", "enteCommittente": "",
+            "strumento": [{"id": "AVVISO_DI_INDAGINE", "label": "Avviso di Indagine", "totale": 0}],
+            "stato": [], "categoria": [], "tempo": {"dataDa": None, "dataA": None}, "mostra": "",
+            "paginazione": {"pagina": page, "itemPagina": per_page, "totaleIniziative": 0},
+            "orderBy": {"campo": "dataPubblicazione", "verso": "desc"},
+        }
+        payload = self._post(ADI_LISTA, body) or {}
+        return payload.get("elencoAvvisi") or []
+
+    def iter_avvisi(self, known_ids: set[str], max_pages: int = 10, per_page: int = 100) -> Iterator[dict]:
+        for page in range(1, max_pages + 1):
+            items = self.avvisi_page(page, per_page)
+            if not items:
+                return
+            new = [i for i in items if i.get("idBando") not in known_ids]
+            yield from items
+            if not new or len(items) < per_page:
+                return
+
+    def detail_avviso(self, id_bando: str) -> dict:
+        payload = self._post(ADI_DETTAGLIO, {"idIniziativa": id_bando}) or {}
+        return payload.get("altriBandi") or {}
+
     # -- dettaglio -----------------------------------------------------
     def detail(self, id_bando: str) -> dict:
         p = {"idIniziativa": id_bando}
@@ -169,6 +198,29 @@ def parse_list_item(it: dict) -> dict:
         "categorie": ", ".join(it.get("categoria") or []),
         "data_pubblicazione": ms(it.get("dataPubblicazione")),
         "data_scadenza": ms(it.get("dataScadenzaBando")),
+    }
+
+
+TIPOLOGIA_AVVISO = {"APPALTO_FORNITURE": "Beni", "APPALTO_LAVORI": "Lavori", "APPALTO_SERVIZI": "Servizi",
+                    "APPALTO_MISTO": "Misto"}
+CRITERI = {"MP": "Minor prezzo", "OEPV": "Offerta economicamente piu' vantaggiosa"}
+
+
+def parse_avviso_item(it: dict) -> dict:
+    """Elemento dell'elenco avvisi di indagine, nello stesso formato delle RDO."""
+    base = parse_list_item({**it, "numeroRdo": it.get("numeroAvviso"), "riassuntoBando": None})
+    base["fonte"] = "Avviso"
+    return base
+
+
+def parse_avviso_detail(d: dict) -> dict:
+    lotti = d.get("dettaglioLottiAltriBandi") or []
+    cig = ", ".join(l["cig"] for l in lotti[:3] if l.get("cig")) or None
+    criterio = d.get("criterioAggiudcazione") or next((l.get("criterioAggiudcazione") for l in lotti), None)
+    return {
+        "tipo": TIPOLOGIA_AVVISO.get(d.get("tyTipologiaAppalto") or ""),
+        "cig": cig,
+        "criterio": CRITERI.get(criterio, criterio),
     }
 
 

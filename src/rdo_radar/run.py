@@ -7,13 +7,16 @@ import sys
 import time
 
 from . import db, documents, extract
-from .client import Portal, parse_detail, parse_list_item
+from .client import Portal, parse_avviso_detail, parse_avviso_item, parse_detail, parse_list_item
 from .export import export_json
 
 log = logging.getLogger("rdo_radar")
 
-# Si leggono i documenti solo per questi tipi: i Servizi sono fuori dal vostro settore.
-TIPI_CON_DOCUMENTI = {"Beni", "Lavori"}
+def vuole_documenti(tipo: str | None) -> bool:
+    """Documenti letti per Beni e Lavori, anche se misti ("Lavori, Servizi"); i soli Servizi no."""
+    return not tipo or "Beni" in tipo or "Lavori" in tipo
+
+
 MAX_BYTES = 8 * 1024 * 1024
 
 
@@ -26,7 +29,7 @@ def process_detail(portal: Portal, con, id_bando: str, tipo: str | None) -> str:
     saved_docs: list[dict] = []
     stato = "saltato"
 
-    if tipo in TIPI_CON_DOCUMENTI:
+    if vuole_documenti(tipo):
         chosen = documents.rank_documents(det["documenti"])
         chosen_ids = {d["id_documento"] for d in chosen}
         for d in det["documenti"]:
@@ -63,6 +66,36 @@ def process_detail(portal: Portal, con, id_bando: str, tipo: str | None) -> str:
     return stato
 
 
+def process_avviso(portal: Portal, con, id_bando: str) -> None:
+    """Avviso di indagine: niente documenti pubblici, solo tipologia, CIG e criterio dal dettaglio."""
+    det = parse_avviso_detail(portal.detail_avviso(id_bando))
+    titolo = con.execute("SELECT titolo FROM rdo WHERE id_bando=?", (id_bando,)).fetchone()["titolo"]
+    db.save_detail(con, id_bando, descrizione=None, cig=det["cig"], criterio=det["criterio"], scopo=titolo,
+                   estratto="", docs_stato="nessuno", documenti=[], tipo=det["tipo"])
+
+
+def leggi_avvisi(portal: Portal, con) -> None:
+    """Un problema con gli avvisi non deve fermare la lettura delle RDO."""
+    try:
+        known = db.known_ids(con)
+        nuovi = sum(1 for raw in portal.iter_avvisi(known) if db.upsert_list_item(con, parse_avviso_item(raw)))
+        con.commit()
+        log.info("avvisi di indagine: %d nuovi", nuovi)
+        letti = errori = 0
+        for id_bando in db.pending_ids(con, "Avviso"):
+            try:
+                process_avviso(portal, con, id_bando)
+                letti += 1
+            except Exception as exc:
+                errori += 1
+                con.execute("UPDATE rdo SET docs_stato='errore' WHERE id_bando=?", (id_bando,))
+                con.commit()
+                log.warning("avviso %s non letto: %s", id_bando, exc)
+        log.info("avvisi: dettagli letti %d, errori %d", letti, errori)
+    except Exception as exc:
+        log.warning("avvisi di indagine non aggiornati: %s", exc)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--db", required=True)
@@ -90,7 +123,9 @@ def main(argv: list[str] | None = None) -> int:
     con.commit()
     log.info("elenco letto: %d RDO nuove", nuove)
 
-    todo = db.pending_ids(con)[: args.max_new]
+    leggi_avvisi(portal, con)
+
+    todo = db.pending_ids(con, "RDO")[: args.max_new]
     fatte = errori = 0
     deadline = time.monotonic() + args.max_minutes * 60 if args.max_minutes else None
     for id_bando in todo:

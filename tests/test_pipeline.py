@@ -184,3 +184,133 @@ def test_pending_mette_in_fondo_le_rdo_in_errore(tmp_path):
                     "VALUES (?,?,?,?,?,0,0)", (f"id{i}", "t", st, pub, fut))
     con.commit()
     assert db.pending_ids(con) == ["id2", "id1", "id0"]
+
+
+def test_ripete_dopo_connessione_chiusa(monkeypatch):
+    import requests
+    from rdo_radar.client import Portal
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+    ok = {"result": {"exitCode": "200"}, "payload": {"x": 1}}
+
+    class S(_FakeSession):
+        def post(self, *a, **k):
+            self.calls += 1
+            r = self.responses.pop(0)
+            if isinstance(r, Exception):
+                raise r
+            return r
+
+    p = Portal(delay=0, session=S([requests.ConnectionError("chiusa"), requests.ConnectionError("chiusa"), _Resp(ok)]))
+    assert p._post("/x", {}) == {"x": 1} and p.s.calls == 3
+
+
+# ---- avvisi di indagine (osservati sul portale il 24/11/2026) ----
+AVVISO_ITEM = {
+    "idBando": "770892cd9590a9d9",
+    "titoloBando": "AVVISO PUBBLICO DI INDAGINE DI MERCATO ... Museo Archeologico Nazionale di Vibo Valentia",
+    "strumentoSigla": "ADI", "valore": "951500.01",
+    "enteCommittente": "MINISTERO DELLA CULTURA",
+    "dataPubblicazione": 1795600800000, "dataScadenzaBando": 1796835600000,
+    "categoria": ["Lavori di manutenzione e opere pubbliche"], "numeroAvviso": "6947000",
+}
+AVVISO_DETAIL = {
+    "tyTipologiaAppalto": "APPALTO_LAVORI", "criterioAggiudcazione": "MP",
+    "dettaglioLottiAltriBandi": [{"idLotto": 1, "cig": "BDEF6D962C", "valore": "951500,01"}],
+}
+
+
+def test_parse_avviso():
+    from rdo_radar.client import parse_avviso_detail, parse_avviso_item
+    it = parse_avviso_item(AVVISO_ITEM)
+    assert it["fonte"] == "Avviso" and it["numero_rdo"] == "6947000" and it["valore"] == 951500.01
+    assert it["tipo"] is None and it["data_scadenza"] == 1796835600
+    d = parse_avviso_detail(AVVISO_DETAIL)
+    assert d == {"tipo": "Lavori", "cig": "BDEF6D962C", "criterio": "Minor prezzo"}
+    assert parse_avviso_detail({"tyTipologiaAppalto": "APPALTO_MISTO"})["tipo"] == "Misto"
+
+
+def test_avvisi_nel_db_e_nell_export(tmp_path):
+    import json
+    from rdo_radar import db
+    from rdo_radar.client import parse_avviso_detail, parse_avviso_item
+    from rdo_radar.run import process_avviso
+
+    con = db.connect(str(tmp_path / "x.sqlite"))
+    assert db.upsert_list_item(con, parse_avviso_item(AVVISO_ITEM), now=1795700000) is True
+    assert db.pending_ids(con, "Avviso") == ["770892cd9590a9d9"] and db.pending_ids(con, "RDO") == []
+
+    class P:
+        def detail_avviso(self, _):
+            return AVVISO_DETAIL
+    process_avviso(P(), con, "770892cd9590a9d9")
+    r = con.execute("SELECT * FROM rdo").fetchone()
+    assert (r["tipo"], r["fonte"], r["docs_stato"], r["cig"]) == ("Lavori", "Avviso", "nessuno", "BDEF6D962C")
+    assert r["scopo"].startswith("AVVISO PUBBLICO")
+    # al giro dopo l'elenco non deve cancellare il tipo letto dal dettaglio
+    db.upsert_list_item(con, parse_avviso_item(AVVISO_ITEM), now=1795800000)
+    assert con.execute("SELECT tipo FROM rdo").fetchone()[0] == "Lavori"
+    out = tmp_path / "o.json"
+    export_json(con, out, now=1795700000)
+    item = json.loads(out.read_text())["rdo"][0]
+    assert item["fonte"] == "Avviso" and item["numero"] == "6947000"
+
+
+def test_migrazione_db_vecchio_e_rdo_miste(tmp_path):
+    import sqlite3
+    from rdo_radar import db
+    path = tmp_path / "vecchio.sqlite"
+    c = sqlite3.connect(path)  # schema precedente: senza colonna "fonte"
+    c.executescript(db.SCHEMA.replace("  fonte TEXT DEFAULT 'RDO',            -- RDO | Avviso (avviso di indagine)\n", ""))
+    now = 4102444800  # 2100: non scadute
+    for i, (tipo, st) in enumerate([("Lavori, Servizi", "saltato"), ("Servizi", "saltato"), ("Beni", "ok")]):
+        c.execute("INSERT INTO rdo (id_bando, titolo, tipo, docs_stato, data_scadenza, first_seen, last_seen) "
+                  "VALUES (?,?,?,?,?,0,0)", (f"id{i}", "t", tipo, st, now))
+    c.commit(); c.close()
+    con = db.connect(str(path))
+    assert {r["fonte"] for r in con.execute("SELECT fonte FROM rdo")} == {"RDO"}
+    assert db.pending_ids(con, "RDO") == ["id0"]            # solo la mista torna in coda
+    db.connect(str(path))                                     # seconda apertura: nessun nuovo accodamento
+    con.execute("UPDATE rdo SET docs_stato='saltato' WHERE id_bando='id0'"); con.commit()
+    assert db.pending_ids(db.connect(str(path)), "RDO") == []
+
+
+def test_documenti_per_tipi_misti():
+    from rdo_radar.run import vuole_documenti
+    assert vuole_documenti("Beni") and vuole_documenti("Lavori, Servizi") and vuole_documenti("Beni, Servizi")
+    assert vuole_documenti(None) and not vuole_documenti("Servizi")
+
+
+class _PortaleFinto:
+    def __init__(self, avvisi_rotti=False, **k):
+        self.rotti = avvisi_rotti
+    def iter_list(self, known, max_pages=40):
+        yield LIST_ITEM
+    def iter_avvisi(self, known, **k):
+        if self.rotti:
+            raise RuntimeError("servizio avvisi cambiato")
+        yield AVVISO_ITEM
+    def detail_avviso(self, _):
+        return AVVISO_DETAIL
+    def detail(self, _):
+        return DETAIL
+    def get_documento(self, _):
+        raise RuntimeError("niente documenti nel test")
+
+
+def test_esecuzione_completa_con_avvisi(tmp_path, monkeypatch):
+    import json
+    from rdo_radar import run
+    monkeypatch.setattr(run, "Portal", lambda **k: _PortaleFinto(**k))
+    db_, out = tmp_path / "d.sqlite", tmp_path / "o.json"
+    assert run.main(["--db", str(db_), "--out", str(out)]) == 0
+    fonti = sorted((x["fonte"], x["numero"]) for x in json.loads(out.read_text())["rdo"])
+    assert fonti == [("Avviso", "6947000"), ("RDO", "6942120")]
+
+
+def test_guasto_avvisi_non_ferma_le_rdo(tmp_path, monkeypatch):
+    import json
+    from rdo_radar import run
+    monkeypatch.setattr(run, "Portal", lambda **k: _PortaleFinto(avvisi_rotti=True))
+    out = tmp_path / "o.json"
+    assert run.main(["--db", str(tmp_path / "d.sqlite"), "--out", str(out)]) == 0
+    assert [x["fonte"] for x in json.loads(out.read_text())["rdo"]] == ["RDO"]

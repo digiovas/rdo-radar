@@ -75,3 +75,13 @@ Il campo "% RdO con invito selettivo" e' vuoto nel 2025: non permette di separar
 Funzionano e sono testati: archivio SQLite, estrazione testo (PDF/Word/Excel), scelta dei documenti,
 estrazione dello scopo, export JSON, dashboard (ricerca, negativi, ricerche salvate nel browser),
 workflow GitHub Actions (non ancora eseguito). Non testato contro il portale reale.
+
+## Avvisi di indagine (aggiunti il 24/11/2026)
+- Elenco: `POST /adi/api/v1/vetrina/ricerca` (body come la vetrina, strumento id `AVVISO_DI_INDAGINE`, itemPagina fino a 100)
+  -> `payload.elencoAvvisi` (idBando, titoloBando, valore, enteCommittente, date, categoria, numeroAvviso).
+- Dettaglio: `POST /adi/api/v1/vetrina/dettaglio` con `{"idIniziativa": idBando}` -> `payload.altriBandi`
+  (tyTipologiaAppalto: APPALTO_FORNITURE/LAVORI/SERVIZI/MISTO, lotti con CIG, criterio).
+- Verificato su 61 avvisi: nessun documento pubblico (getDocIniziativa vuoto). Lo "scopo" e' il titolo.
+- Nel database stanno nella stessa tabella `rdo` con `fonte = 'Avviso'`; `tipo`: Beni/Lavori/Servizi/Misto.
+- Un guasto sugli avvisi non ferma la lettura delle RDO (vedi `leggi_avvisi` in run.py).
+- Le RDO di tipo misto ("Lavori, Servizi") ora vengono lette come Beni/Lavori (prima erano saltate).
