@@ -65,7 +65,7 @@
     <label><input type="radio" name="mode" value="and"> tutte</label>
   </div>
 
-  <label for="negs">Parole chiave negative (una per riga)</label>
+  <label for="negs">Parole chiave da escludere (una per riga)</label>
   <textarea id="negs" class="neg" placeholder="farmaco&#10;dispositivo medico&#10;ospedale"></textarea>
   <div class="chk" style="margin-top:6px">
     <label title="Di default i negativi guardano titolo, descrizione e scopo. Nei documenti compaiono spesso per caso."><input type="checkbox" id="negDocs"> negativi anche nei documenti</label>
@@ -124,6 +124,7 @@ const DEFAULT_SEARCH = {
 };
 let DATA = {rdo: [], generato: 0};
 let state = {searches: [], current: 0};
+const PAGE = 100;  // RDO mostrate per volta
 
 // ---------- utilita' ----------
 const $ = id => document.getElementById(id);
@@ -214,7 +215,7 @@ function evaluate(r, s, now) {
     if (s.mode === "and" ? hit.size < pos.length : hit.size === 0) return null;
   }
 
-  // parole chiave negative
+  // parole chiave da escludere
   const negFields = [["titolo", r.titolo], ["scopo", r.scopo], ["descrizione", r.descrizione]];
   if (s.negDocs) negFields.push(["documenti", r.estratto]);
   const excluded = [];
@@ -229,9 +230,12 @@ function render() {
   const visible = evals.filter(e => !e.excluded.length);
   const hidden = evals.filter(e => e.excluded.length);
   const list = (showHidden ? evals : visible).sort((a, b) => b.score - a.score || (a.r.scadenza || 9e12) - (b.r.scadenza || 9e12));
-  $("count").textContent = `${visible.length} RDO in evidenza` + (hidden.length ? ` · ${hidden.length} escluse dai negativi` : "") + ` · ${DATA.rdo.length} totali`;
+  const fuoriFiltri = DATA.rdo.length - evals.length;
+  $("count").textContent = `${visible.length} RDO in evidenza` + (hidden.length ? ` · ${hidden.length} escluse dalle parole da escludere` : "")
+    + (fuoriFiltri ? ` · ${fuoriFiltri} non mostrate dai filtri (scadute, tipo, importo, parole chiave)` : "") + ` · ${DATA.rdo.length} totali`;
   if (!list.length) { $("results").innerHTML = '<div class="card empty">Nessuna RDO corrisponde a questa ricerca.</div>'; return; }
-  $("results").innerHTML = list.slice(0, 200).map(e => {
+  const shown = Math.min(list.length, state.limit || PAGE);
+  $("results").innerHTML = list.slice(0, shown).map(e => {
     const r = e.r, ts = e.hits;
     const giorni = r.scadenza ? Math.ceil((r.scadenza - now) / 86400) : null;
     const scad = giorni == null ? "" : giorni < 0 ? '<span class="tag exp">scaduta</span>'
@@ -252,12 +256,15 @@ function render() {
       <div class="docs">${esc(docs)}${r.cig ? " · CIG " + esc(r.cig) : ""}${r.criterio ? " · " + esc(r.criterio) : ""}</div>
       <a class="btn-rdo" href="${esc(r.url)}" target="_blank" rel="noopener">Apri la RDO ${esc(r.numero || "")} su AcquistinretePA ↗</a>
     </div>`;
-  }).join("");
+  }).join("") + (list.length > shown
+    ? `<div class="card empty"><button id="more" class="primary">Mostra altre ${Math.min(PAGE, list.length - shown)} (${shown} di ${list.length})</button></div>` : "");
+  const more = $("more");
+  if (more) more.addEventListener("click", () => { state.limit = shown + PAGE; render(); });
 }
 
 // ---------- eventi ----------
 function bind() {
-  const rerender = () => render();
+  const rerender = () => { state.limit = PAGE; render(); };
   document.querySelectorAll("aside input, aside textarea").forEach(el => el.addEventListener("input", rerender));
   $("showHidden").addEventListener("input", rerender);
   $("saved").addEventListener("change", () => { state.current = +$("saved").value; persist(); writeForm(state.searches[state.current]); render(); });
