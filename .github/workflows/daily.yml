@@ -4,6 +4,14 @@ on:
   schedule:
     - cron: "17 5 * * *"   # 05:17 UTC = 06:17/07:17 in Italia
   workflow_dispatch:        # avvio manuale dal tab Actions
+    inputs:
+      solo_sito:
+        description: "Solo sito: pubblica la dashboard senza rileggere le RDO (circa 1 minuto)"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths: ["dashboard/**"]  # una modifica alla dashboard la ripubblica da sola, senza scansione
 
 permissions:
   contents: write           # per salvare il database nel branch "data"
@@ -42,6 +50,7 @@ jobs:
           fi
 
       - name: Aggiorna le RDO
+        if: ${{ github.event_name != 'push' && inputs.solo_sito != true }}
         run: python -m rdo_radar.run --db data-branch/rdo.sqlite --out data-branch/rdo.json --max-new 1000 --max-minutes 75 -v
 
       - name: Salva i dati
