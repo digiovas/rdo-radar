@@ -64,6 +64,17 @@ class Portal:
             except requests.RequestException:
                 pass
 
+    def _post_con_ripetizioni(self, path: str, payload: dict[str, Any], tentativi: int = 3):
+        """Il portale ogni tanto chiude la connessione o non risponde: si riprova con una breve pausa."""
+        for n in range(1, tentativi + 1):
+            try:
+                return self.s.post(BASE + path, json=payload, timeout=self.timeout)
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                if n == tentativi:
+                    raise
+                log.info("%s: %s, nuovo tentativo %d/%d", path, type(exc).__name__, n + 1, tentativi)
+                time.sleep(4 * n)
+
     def _post(self, path: str, payload: dict[str, Any]) -> Any:
         wait = self.delay - (time.monotonic() - self._last)
         if wait > 0:
@@ -71,7 +82,7 @@ class Portal:
         data = None
         for attempt in (1, 2):
             self.s.headers["KEY_REQUEST"] = str(int(time.time() * 1000))
-            r = self.s.post(BASE + path, json=payload, timeout=self.timeout)
+            r = self._post_con_ripetizioni(path, payload)
             self._last = time.monotonic()
             r.raise_for_status()
             try:
